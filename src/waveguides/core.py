@@ -108,7 +108,7 @@ def alpha_rec_tm(a, b, r_s, m, n, k, kc):
     return alpha
 
 
-def calc_phase_shift_rec(a, b, er, maxmodeN, sigma, f, l, mode_mat, lossless=False):
+def calc_propagation_factor_rec(a, b, er, maxmodeN, sigma, f, l, mode_mat, lossless=False):
     k = 2 * np.pi * f / C_LIGHT * np.sqrt(er)
     ps = np.zeros(maxmodeN, dtype=complex)
     r_s = np.sqrt(np.pi * f * 4 * np.pi * 1e-7 / sigma)
@@ -225,7 +225,7 @@ def alpha_cir_tm(rc, r_s, k, kc):
     return alpha
 
 
-def calc_phase_shift_cir(rc, er, maxmodeN, sigma, f, l, mode_mat, lossless=False):
+def calc_propagation_factor_cir(rc, er, maxmodeN, sigma, f, l, mode_mat, lossless=False):
     k = 2 * np.pi * f / C_LIGHT * np.sqrt(er)
     ps = np.zeros(maxmodeN, dtype=complex)
     r_s = np.sqrt(np.pi * f * 4 * np.pi * 1e-7 / sigma)
@@ -388,15 +388,15 @@ class WG(ABC):
     def gamma_at_list(self, f_list):
         raise NotImplementedError()
 
-    def phaseshift_at(self, f, lossless=False):
+    def propagation_factor_at(self, f, lossless=False):
         match self.cross_tag:
             case 'cir':
-                ps = calc_phase_shift_cir(
+                ps = calc_propagation_factor_cir(
                     self.r, self.er, self.N, self.sigma, f, self.l,
                     self.mode_info_array(), lossless=lossless,
                 )
             case 'rec':
-                ps = calc_phase_shift_rec(
+                ps = calc_propagation_factor_rec(
                     self.a, self.b, self.er, self.N, self.sigma, f, self.l,
                     self.mode_info_array(), lossless=lossless,
                 )
@@ -404,8 +404,23 @@ class WG(ABC):
                 raise TypeError('Unknown waveguide type.')
         return ps
 
-    def phaseshift_at_list(self, f_list, lossless=False):
-        return np.array([self.phaseshift_at(f, lossless=lossless) for f in f_list])
+    def propagation_factor_at_list(self, f_list, lossless=False):
+        return np.array([self.propagation_factor_at(f, lossless=lossless) for f in f_list])
+
+    def phaseshift_at(self, f):
+        """Return the phase shift (rad) for each mode at frequency f.
+
+        Defined as the argument of the propagation factor:
+        angle(exp(-(alpha + j*beta) * l)) = -beta * l (rad).
+        """
+        return np.angle(self.propagation_factor_at(f, lossless=True))
+
+    def phaseshift_at_list(self, f_list):
+        """Return the phase shift (rad) for each mode over a list of frequencies.
+
+        Shape: (len(f_list), N).
+        """
+        return np.array([self.phaseshift_at(f) for f in f_list])
 
     def mode_info_array(self):
         """Return mode info as a 2D numpy array with shape (N, 8)."""

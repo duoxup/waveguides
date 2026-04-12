@@ -22,7 +22,7 @@ from .core import (WG, C_LIGHT,
 # %% Internal helpers
 # *********************************************************
 
-def _build_ps_args(wg: WG, fs: Sequence[float]):
+def _build_pf_args(wg: WG, fs: Sequence[float]):
     mi = wg.mode_info_list
     match wg.cross_tag.lower():
         case 'rec':
@@ -128,7 +128,7 @@ def _results_to_matrix_auto_shape(
     return X
 
 
-def _ps_worker_cir(args):
+def _pf_worker_cir(args):
     i, j, f, sigma, r, l, er, mode_type, mode_num1, mode_num2, kc = args
     k = 2 * np.pi * f / C_LIGHT * np.sqrt(er)
     r_s = np.sqrt(np.pi * f * 4 * np.pi * 1e-7 / sigma)
@@ -140,7 +140,7 @@ def _ps_worker_cir(args):
     return i, j, np.exp(-(np.imag(beta) + np.abs(alpha) + 1j * np.real(beta)) * l)
 
 
-def _ps_worker_rec(args):
+def _pf_worker_rec(args):
     i, j, f, sigma, a, b, l, er, mode_type, mode_num1, mode_num2, kc = args
     k = 2 * np.pi * f / C_LIGHT * np.sqrt(er)
     r_s = np.sqrt(np.pi * f * 4 * np.pi * 1e-7 / sigma)
@@ -178,12 +178,12 @@ def _dispatch(func_worker,
     return res
 
 
-def _select_ps_worker(wg: WG):
+def _select_pf_worker(wg: WG):
     match wg.cross_tag.lower():
         case 'rec':
-            return _ps_worker_rec
+            return _pf_worker_rec
         case 'cir':
-            return _ps_worker_cir
+            return _pf_worker_cir
         case _:
             raise ValueError(f'Unknown waveguide cross_tag: {wg.cross_tag!r}')
 
@@ -192,18 +192,32 @@ def _select_ps_worker(wg: WG):
 # %% Public APIs
 # *********************************************************
 
+def propagation_factor_array(wg: WG, fs: Sequence[float], *,
+                             pool=None,
+                             chunksize: int = 64) -> np.ndarray:
+    """
+    Compute the complex propagation factor exp(-(alpha + j*beta)*l) for each
+    mode in *wg* over a list of frequencies *fs*.
+
+    Returns a 2D complex array of shape (len(fs), N) where N is the number of modes.
+    """
+    func_worker = _select_pf_worker(wg)
+    iterable_args = _build_pf_args(wg, fs).flatten()
+    pool_res = _dispatch(func_worker, iterable_args, pool=pool, chunksize=chunksize)
+    return _results_to_matrix_auto_shape(pool_res, dtype=complex)
+
+
 def phaseshift_array(wg: WG, fs: Sequence[float], *,
                      pool=None,
                      chunksize: int = 64) -> np.ndarray:
     """
-    Compute the phase-shift matrix for *wg* over a list of frequencies *fs*.
+    Compute the phase shift (rad) for each mode in *wg* over a list of
+    frequencies *fs*.
 
-    Returns a 2D array of shape (len(fs), N) where N is the number of modes.
+    Defined as angle(propagation_factor), i.e. -beta*l (rad).
+    Returns a 2D real array of shape (len(fs), N) where N is the number of modes.
     """
-    func_worker = _select_ps_worker(wg)
-    iterable_args = _build_ps_args(wg, fs).flatten()
-    pool_res = _dispatch(func_worker, iterable_args, pool=pool, chunksize=chunksize)
-    return _results_to_matrix_auto_shape(pool_res, dtype=complex)
+    return np.angle(propagation_factor_array(wg, fs, pool=pool, chunksize=chunksize))
 
 
 def impedance_array(wg: WG, fs: Sequence[float], *,
@@ -222,16 +236,6 @@ def impedance_array(wg: WG, fs: Sequence[float], *,
 # *********************************************************
 # %% Deprecated aliases — will be removed in a future version
 # *********************************************************
-
-def phaseshift_array_multifreq(wg: WG, fs: Sequence[float], *,
-                               pool=None, chunksize: int = 64) -> np.ndarray:
-    """Deprecated: use ``phaseshift_array()`` instead."""
-    warnings.warn(
-        "phaseshift_array_multifreq() is deprecated; use phaseshift_array() instead.",
-        DeprecationWarning,
-        stacklevel=2,
-    )
-    return phaseshift_array(wg, fs, pool=pool, chunksize=chunksize)
 
 
 def impedance_array_multifreq(wg: WG, fs: Sequence[float], *,

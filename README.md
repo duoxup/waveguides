@@ -13,8 +13,18 @@ A Python package for computing waveguide mode properties, including cutoff frequ
 
 ## Installation
 
+Clone the repository and install from source:
+
 ```bash
-pip install waveguides
+git clone https://github.com/PigDuo/waveguides.git
+cd waveguides
+pip install .
+```
+
+To also install development tools:
+
+```bash
+pip install ".[dev]"
 ```
 
 Requires Python ≥ 3.10. Core dependencies are `numpy` and `scipy` only.
