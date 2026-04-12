@@ -26,5 +26,8 @@ package-dir = {"" = "src"}
 where = ["src"]
 include = ["waveguides*"]
 
+[tool.setuptools.package-data]
+waveguides = ["A.npy", "B.npy"]
+
 [tool.ruff]
 line-length = 100
