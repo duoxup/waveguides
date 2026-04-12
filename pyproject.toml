@@ -1,0 +1,29 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "waveguides"
+version = "1.0.0"
+description = "A Python package for computing waveguide mode properties, including cutoff frequencies, impedances, phase shifts, and field distributions for rectangular and circular waveguides."
+readme = "README.md"
+requires-python = ">=3.10"
+authors = [{ name = "Duo Xu" }]
+license = { file = "LICENSE" }
+dependencies = [
+  "numpy",
+  "scipy",
+]
+
+[project.optional-dependencies]
+dev = ["pytest", "ruff", "ipykernel"]
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]
+include = ["waveguides*"]
+
+[tool.ruff]
+line-length = 100
