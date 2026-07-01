@@ -429,6 +429,25 @@ class WG(ABC):
             out[idx, :] = mode.to_array()
         return out
 
+    def _mode_arrays(self):
+        """Cached per-mode parameter arrays for vectorized evaluation.
+
+        Returns a dict of length-N arrays: ``kc``, ``mode_type``,
+        ``mode_num1``, ``mode_num2``. The mode list is fixed after
+        construction, so the result is memoized on the instance.
+        """
+        cache = getattr(self, "_mode_arrays_cache", None)
+        if cache is None:
+            mi = self.mode_info_list
+            cache = {
+                "kc": np.array([m.kc for m in mi], dtype=float),
+                "mode_type": np.array([m.mode_type for m in mi], dtype=int),
+                "mode_num1": np.array([m.mode_num1 for m in mi], dtype=int),
+                "mode_num2": np.array([m.mode_num2 for m in mi], dtype=int),
+            }
+            self._mode_arrays_cache = cache
+        return cache
+
     @abstractmethod
     def get_mode_efield_distribution_at_gridpoints(self, mode_idx, X, Y) -> EField2D:
         pass
