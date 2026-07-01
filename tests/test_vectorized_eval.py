@@ -1,11 +1,15 @@
 import numpy as np
 import pytest
+from numpy.lib.scimath import sqrt as _csqrt
 
 from waveguides import RecWG, CirWG
 from waveguides.heavy_computation import (
     propagation_factor_array,
     impedance_array,
     phaseshift_array,
+)
+from waveguides.core import (
+    alpha_rec_te, alpha_rec_tm, alpha_cir_te, alpha_cir_tm, C_LIGHT,
 )
 
 
@@ -19,6 +23,47 @@ def _cir(N):
 
 REC_FS = np.array([7e9, 10e9, 15e9])
 CIR_FS = np.array([9e9, 12e9, 20e9])
+
+
+def scalar_pf(wg, f, lossless=False):
+    """Independent scalar reference for the propagation factor (per mode)."""
+    r_s = 0.0 if lossless else np.sqrt(np.pi * f * 4 * np.pi * 1e-7 / wg.sigma)
+    k = 2 * np.pi * f / C_LIGHT * np.sqrt(wg.er)
+    out = np.zeros(len(wg.mode_info_list), dtype=complex)
+    for i, m in enumerate(wg.mode_info_list):
+        beta = _csqrt(k**2 - m.kc**2)
+        if wg.cross_tag == "rec":
+            if m.mode_type > 0:
+                alpha = alpha_rec_te(wg.a, wg.b, r_s, m.mode_num1, m.mode_num2, k, m.kc)
+            else:
+                alpha = alpha_rec_tm(wg.a, wg.b, r_s, m.mode_num1, m.mode_num2, k, m.kc)
+        else:
+            if m.mode_type > 0:
+                alpha = alpha_cir_te(wg.r, r_s, m.mode_num1, k, m.kc)
+            else:
+                alpha = alpha_cir_tm(wg.r, r_s, k, m.kc)
+        out[i] = np.exp(-(np.imag(beta) + np.abs(alpha) + 1j * np.real(beta)) * wg.l)
+    return out
+
+
+def scalar_impedance(wg, f):
+    """Independent scalar reference for the wave impedance (per mode)."""
+    k = 2 * np.pi * f / C_LIGHT * np.sqrt(wg.er)
+    eta = 120 * np.pi / np.sqrt(wg.er)
+    out = np.zeros(len(wg.mode_info_list), dtype=complex)
+    for i, m in enumerate(wg.mode_info_list):
+        beta = np.sqrt(complex(k**2 - m.kc**2))
+        out[i] = (k / beta * eta) if m.mode_type > 0 else (beta / k * eta)
+    return out
+
+
+def scalar_wavelength(wg, f):
+    """Independent scalar reference for the guide wavelength (per mode)."""
+    k0 = f / C_LIGHT * 2 * np.pi * np.sqrt(wg.er)
+    out = np.zeros(len(wg.mode_info_list), dtype=complex)
+    for i, m in enumerate(wg.mode_info_list):
+        out[i] = 2 * np.pi / np.sqrt(complex(k0**2 - m.kc**2))
+    return out
 
 
 def test_mode_arrays_values_and_cache():
@@ -38,7 +83,7 @@ def test_mode_arrays_values_and_cache():
 def test_propagation_factor_matches_oracle(make_wg, fs, N):
     wg = make_wg(N)
     got = propagation_factor_array(wg, fs)
-    ref = np.array([wg.propagation_factor_at(f) for f in fs])
+    ref = np.array([scalar_pf(wg, f) for f in fs])
     assert got.shape == (len(fs), N)
     assert np.iscomplexobj(got)
     np.testing.assert_allclose(got, ref, rtol=1e-9, atol=1e-12)
@@ -48,7 +93,7 @@ def test_propagation_factor_scalar_returns_2d():
     wg = _rec(10)
     out = propagation_factor_array(wg, 10e9)
     assert out.shape == (1, 10)
-    ref = wg.propagation_factor_at(10e9)
+    ref = scalar_pf(wg, 10e9)
     np.testing.assert_allclose(out[0], ref, rtol=1e-9, atol=1e-12)
 
 
@@ -69,7 +114,7 @@ def test_propagation_factor_no_pool_kwarg():
 def test_impedance_matches_oracle(make_wg, fs, N):
     wg = make_wg(N)
     got = impedance_array(wg, fs)
-    ref = np.array([wg.impedance_at(f) for f in fs])
+    ref = np.array([scalar_impedance(wg, f) for f in fs])
     assert got.shape == (len(fs), N)
     assert np.iscomplexobj(got)
     np.testing.assert_allclose(got, ref, rtol=1e-9, atol=1e-6)
@@ -86,7 +131,7 @@ def test_impedance_no_pool_kwarg():
 def test_phaseshift_matches_oracle(make_wg, fs, N):
     wg = make_wg(N)
     got = phaseshift_array(wg, fs)
-    ref = wg.phaseshift_at_list(fs)
+    ref = np.angle(np.array([scalar_pf(wg, f) for f in fs]))
     assert got.shape == (len(fs), N)
     np.testing.assert_allclose(got, ref, rtol=1e-9, atol=1e-9)
 
