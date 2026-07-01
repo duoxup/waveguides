@@ -242,6 +242,86 @@ def calc_propagation_factor_cir(rc, er, maxmodeN, sigma, f, l, mode_mat, lossles
 
 
 # *********************************************************
+# %% Vectorized evaluation kernel
+# *********************************************************
+
+def _freq_mode_grid(wg, fs):
+    """Broadcast frequency/mode grid shared by the vectorized kernels.
+
+    Returns (fs_1d, k, kc, beta, mode_type, m1, m2) with fs_1d (M,),
+    k (M,1), kc (1,N), beta (M,N) complex128, mode_type/m1/m2 (1,N).
+    """
+    ma = wg._mode_arrays()
+    fs = np.atleast_1d(np.asarray(fs, dtype=float))
+    k = (2 * np.pi * fs / C_LIGHT * np.sqrt(wg.er))[:, None]
+    kc = ma["kc"][None, :]
+    beta = np.sqrt((k**2 - kc**2).astype(np.complex128))
+    mode_type = ma["mode_type"][None, :]
+    m1 = ma["mode_num1"][None, :].astype(float)
+    m2 = ma["mode_num2"][None, :].astype(float)
+    return fs, k, kc, beta, mode_type, m1, m2
+
+
+def propagation_factor_matrix(wg, fs, lossless=False):
+    """Complex propagation factor exp(-(alpha + j*beta)*l) for each mode of
+    *wg* over frequencies *fs* (scalar or 1-D). Shape (M, N), complex128.
+    When *lossless*, wall loss is dropped (r_s = 0)."""
+    fs, k, kc, beta, mode_type, m1, m2 = _freq_mode_grid(wg, fs)
+    r_s = 0.0 if lossless else np.sqrt(np.pi * fs * 4 * np.pi * 1e-7 / wg.sigma)[:, None]
+    ratio2 = (kc / k) ** 2
+    with np.errstate(divide="ignore", invalid="ignore"):
+        root = np.sqrt((1 - ratio2).astype(np.complex128))
+        if wg.cross_tag == "rec":
+            a, b = wg.a, wg.b
+            eps_m = np.where(m1 == 0, 2.0, 1.0)
+            eps_n = np.where(m2 == 0, 2.0, 1.0)
+            denom = m1**2 * b**2 + m2**2 * a**2
+            alpha_te = (
+                1.0 / (60 * np.pi) * r_s / (eps_m * eps_n * root)
+                * (ratio2 * (eps_m / b + eps_n / a)
+                   + (1 - ratio2) * (m1**2 * b + m2**2 * a) / denom)
+            )
+            alpha_tm = (
+                r_s / root * (m1**2 * b**3 + m2**2 * a**3) / denom
+                / (60 * np.pi * a * b)
+            )
+        elif wg.cross_tag == "cir":
+            rc = wg.r
+            alpha_te = (
+                r_s / root * (m1**2 / (kc**2 * rc**2 - m1**2) + ratio2)
+                / (120 * np.pi * rc)
+            )
+            alpha_tm = r_s / root / (120 * np.pi * rc)
+        else:
+            raise ValueError(f"Unknown waveguide cross_tag: {wg.cross_tag!r}")
+        alpha = np.where(mode_type > 0, alpha_te, alpha_tm)
+    pf = np.exp(-(np.imag(beta) + np.abs(alpha) + 1j * np.real(beta)) * wg.l)
+    if not lossless:
+        # Exact cutoff (kc == k): alpha -> inf, so the physical limit is pf = 0;
+        # the complex-zero division above yields nan there — pin it to the limit.
+        # (Lossless keeps the scalar path's nan at that measure-zero point.)
+        pf = np.where(ratio2 == 1.0, 0.0, pf)
+    return pf
+
+
+def impedance_matrix(wg, fs):
+    """Wave-impedance matrix for *wg* over frequencies *fs* (scalar or 1-D).
+    Shape (M, N), complex128."""
+    fs, k, kc, beta, mode_type, m1, m2 = _freq_mode_grid(wg, fs)
+    eta = 120 * np.pi / np.sqrt(wg.er)
+    with np.errstate(divide="ignore", invalid="ignore"):
+        return np.where(mode_type > 0, k / beta * eta, beta / k * eta)
+
+
+def wavelength_matrix(wg, fs):
+    """Guide-wavelength matrix (2*pi / beta) for *wg* over frequencies *fs*
+    (scalar or 1-D). Shape (M, N), complex128."""
+    fs, k, kc, beta, mode_type, m1, m2 = _freq_mode_grid(wg, fs)
+    with np.errstate(divide="ignore", invalid="ignore"):
+        return 2 * np.pi / beta
+
+
+# *********************************************************
 # %% Waveguide base class
 # *********************************************************
 

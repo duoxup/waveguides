@@ -10,6 +10,7 @@ from waveguides.heavy_computation import (
 )
 from waveguides.core import (
     alpha_rec_te, alpha_rec_tm, alpha_cir_te, alpha_cir_tm, C_LIGHT,
+    propagation_factor_matrix, impedance_matrix, wavelength_matrix,
 )
 
 
@@ -149,3 +150,62 @@ def test_propagation_factor_at_exact_cutoff_is_zero():
     row = propagation_factor_array(wg, fc)[0]
     assert np.isfinite(row).all()          # no nan/inf anywhere in the row
     assert row[i] == 0                     # physical limit exp(-inf) = 0 at cutoff
+
+
+@pytest.mark.parametrize("make_wg, fs", [(_rec, REC_FS), (_cir, CIR_FS)])
+@pytest.mark.parametrize("N", [1, 40, 800])
+def test_kernel_pf_matches_scalar(make_wg, fs, N):
+    wg = make_wg(N)
+    got = propagation_factor_matrix(wg, fs)
+    ref = np.array([scalar_pf(wg, f) for f in fs])
+    assert got.shape == (len(fs), N)
+    assert np.iscomplexobj(got)
+    np.testing.assert_allclose(got, ref, rtol=1e-9, atol=1e-12)
+
+
+@pytest.mark.parametrize("make_wg, fs", [(_rec, REC_FS), (_cir, CIR_FS)])
+@pytest.mark.parametrize("N", [1, 40, 800])
+def test_kernel_pf_lossless_matches_scalar(make_wg, fs, N):
+    wg = make_wg(N)
+    got = propagation_factor_matrix(wg, fs, lossless=True)
+    ref = np.array([scalar_pf(wg, f, lossless=True) for f in fs])
+    np.testing.assert_allclose(got, ref, rtol=1e-9, atol=1e-12)
+
+
+@pytest.mark.parametrize("make_wg, fs", [(_rec, REC_FS), (_cir, CIR_FS)])
+@pytest.mark.parametrize("N", [1, 40, 800])
+def test_kernel_impedance_matches_scalar(make_wg, fs, N):
+    wg = make_wg(N)
+    got = impedance_matrix(wg, fs)
+    ref = np.array([scalar_impedance(wg, f) for f in fs])
+    assert got.shape == (len(fs), N)
+    np.testing.assert_allclose(got, ref, rtol=1e-9, atol=1e-6)
+
+
+@pytest.mark.parametrize("make_wg, fs", [(_rec, REC_FS), (_cir, CIR_FS)])
+@pytest.mark.parametrize("N", [1, 40, 800])
+def test_kernel_wavelength_matches_scalar(make_wg, fs, N):
+    wg = make_wg(N)
+    got = wavelength_matrix(wg, fs)
+    ref = np.array([scalar_wavelength(wg, f) for f in fs])
+    assert got.shape == (len(fs), N)
+    np.testing.assert_allclose(got, ref, rtol=1e-9, atol=1e-9)
+
+
+def test_kernel_scalar_and_empty_shapes():
+    wg = _rec(10)
+    assert propagation_factor_matrix(wg, 10e9).shape == (1, 10)
+    assert impedance_matrix(wg, 10e9).shape == (1, 10)
+    assert wavelength_matrix(wg, 10e9).shape == (1, 10)
+    assert propagation_factor_matrix(wg, []).shape == (0, 10)
+
+
+def test_kernel_pf_exact_cutoff():
+    wg = _rec(40)
+    i = 5
+    fc = wg.mode_info_list[i].fc
+    lossy = propagation_factor_matrix(wg, fc)[0]
+    assert np.isfinite(lossy).all()
+    assert lossy[i] == 0                     # lossy exact cutoff -> 0 (guarded)
+    lossless = propagation_factor_matrix(wg, fc, lossless=True)[0]
+    assert np.isnan(lossless[i])             # lossless exact cutoff -> nan (matches scalar)
