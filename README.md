@@ -9,7 +9,7 @@ A Python package for computing waveguide mode properties, including cutoff frequ
 - Per-mode cutoff frequency, wave impedance, and phase shift (with optional lossless approximation)
 - Transverse electric field distribution on arbitrary grid points, returned as a plain `EField2D` dataclass
 - Built-in serialization (`dump` / `load`) for saving and restoring waveguide configurations
-- Vectorised multi-frequency computation with optional multiprocessing (`heavy_computation` module)
+- Fully vectorised multi-frequency computation, efficient for both batched sweeps and incremental/adaptive sampling (`heavy_computation` module)
 
 ## Installation
 
@@ -67,25 +67,26 @@ field = cwg.get_mode_efield_distribution_at_gridpoints(0, X, Y)
 # field.Ex, field.Ey, field.Ez are numpy arrays of shape (100, 100)
 ```
 
-## Multi-frequency Computation with Multiprocessing
+## Multi-frequency Computation
 
-For large frequency sweeps or high mode counts, the `heavy_computation` module provides a parallelised interface that accepts a standard `multiprocessing.Pool`:
+For large frequency sweeps or high mode counts, the `heavy_computation` module provides fully NumPy-vectorised functions that evaluate a whole frequency array — or a single point — at once:
 
 ```python
-from multiprocessing import Pool
+import numpy as np
 import waveguides.heavy_computation as hc
 
 fs = np.linspace(26e9, 40e9, 201)
 
-# Single-process (default)
-ps = hc.phaseshift_array(cwg, fs)
+pf = hc.propagation_factor_array(cwg, fs)   # complex propagation factor, shape (len(fs), N)
+ps = hc.phaseshift_array(cwg, fs)           # phase shift (rad),          shape (len(fs), N)
+Z  = hc.impedance_array(cwg, fs)            # wave impedance,             shape (len(fs), N)
 
-# Multi-process
-with Pool(processes=6) as pool:
-    ps = hc.phaseshift_array(cwg, fs, pool=pool, chunksize=4096)
-    Z  = hc.impedance_array(cwg, fs, pool=pool, chunksize=4096)
-# Both return arrays of shape (len(fs), N)
+# fs may also be a scalar or a short batch — ideal for adaptive / incremental
+# sampling where frequencies are chosen on the fly:
+Z_single = hc.impedance_array(cwg, 30e9)    # shape (1, N)
 ```
+
+These functions are vectorised over the frequency axis and involve no `multiprocessing.Pool`; the earlier `pool` / `chunksize` arguments have been removed.
 
 ## Serialization
 
