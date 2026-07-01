@@ -53,7 +53,7 @@ ps = rwg.phaseshift_at(30e9)
 
 # Lossless phase shift over a frequency sweep
 fs = np.linspace(26e9, 40e9, 101)
-ps_array = rwg.phaseshift_at_list(fs, lossless=True)   # shape (101, 20)
+ps_array = rwg.phaseshift_at_list(fs)   # shape (101, 20)
 ```
 
 ```python
@@ -136,8 +136,8 @@ with open("rwg.json") as f:
 | `mode_name_list_latex` | LaTeX-formatted mode name strings for matplotlib |
 | `impedance_at(f)` | Wave impedance array at frequency `f` (Hz) |
 | `impedance_at_list(fs)` | Wave impedance matrix over a frequency list |
-| `phaseshift_at(f, lossless)` | Phase-shift array at frequency `f` (Hz) |
-| `phaseshift_at_list(fs, lossless)` | Phase-shift matrix over a frequency list |
+| `phaseshift_at(f)` | Phase-shift array at frequency `f` (Hz) |
+| `phaseshift_at_list(fs)` | Phase-shift matrix over a frequency list |
 | `wavelength_at(f)` | Guide wavelength array at frequency `f` (Hz) |
 | `get_mode_efield_distribution_at_gridpoints(mode_idx, X, Y)` | Transverse E-field as `EField2D` |
 | `dump()` / `WG.load(data)` | Serialize / deserialize |

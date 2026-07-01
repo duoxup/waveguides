@@ -86,7 +86,7 @@ def test_impedance_no_pool_kwarg():
 def test_phaseshift_matches_oracle(make_wg, fs, N):
     wg = make_wg(N)
     got = phaseshift_array(wg, fs)
-    ref = np.angle(np.array([wg.propagation_factor_at(f) for f in fs]))
+    ref = wg.phaseshift_at_list(fs)
     assert got.shape == (len(fs), N)
     np.testing.assert_allclose(got, ref, rtol=1e-9, atol=1e-9)
 
@@ -95,3 +95,12 @@ def test_phaseshift_no_pool_kwarg():
     wg = _rec(4)
     with pytest.raises(TypeError):
         phaseshift_array(wg, [10e9], pool=None)
+
+
+def test_propagation_factor_at_exact_cutoff_is_zero():
+    wg = _rec(40)
+    i = 5
+    fc = wg.mode_info_list[i].fc          # exact cutoff frequency of mode i
+    row = propagation_factor_array(wg, fc)[0]
+    assert np.isfinite(row).all()          # no nan/inf anywhere in the row
+    assert row[i] == 0                     # physical limit exp(-inf) = 0 at cutoff

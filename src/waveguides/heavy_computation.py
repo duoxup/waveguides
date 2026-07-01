@@ -73,7 +73,10 @@ def propagation_factor_array(wg: WG, fs) -> np.ndarray:
         else:
             raise ValueError(f"Unknown waveguide cross_tag: {wg.cross_tag!r}")
         alpha = np.where(mode_type > 0, alpha_te, alpha_tm)
-    return np.exp(-(np.imag(beta) + np.abs(alpha) + 1j * np.real(beta)) * wg.l)
+    pf = np.exp(-(np.imag(beta) + np.abs(alpha) + 1j * np.real(beta)) * wg.l)
+    # Exact cutoff (kc == k) makes alpha diverge, so the physical limit is pf = 0;
+    # the complex-zero division above yields nan there instead — pin it to the limit.
+    return np.where(ratio2 == 1.0, 0.0, pf)
 
 
 def phaseshift_array(wg: WG, fs) -> np.ndarray:
