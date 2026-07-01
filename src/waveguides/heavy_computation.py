@@ -248,17 +248,13 @@ def propagation_factor_array(wg: WG, fs) -> np.ndarray:
     return np.exp(-(np.imag(beta) + np.abs(alpha) + 1j * np.real(beta)) * wg.l)
 
 
-def phaseshift_array(wg: WG, fs: Sequence[float], *,
-                     pool=None,
-                     chunksize: int = 64) -> np.ndarray:
-    """
-    Compute the phase shift (rad) for each mode in *wg* over a list of
-    frequencies *fs*.
+def phaseshift_array(wg: WG, fs) -> np.ndarray:
+    """Phase shift (rad) for each mode of *wg* over frequencies *fs*.
 
-    Defined as angle(propagation_factor), i.e. -beta*l (rad).
-    Returns a 2D real array of shape (len(fs), N) where N is the number of modes.
+    Defined as angle(propagation_factor) = -beta*l wrapped to (-pi, pi].
+    *fs* may be a scalar or 1-D array-like. Returns shape (len(fs), N).
     """
-    return np.angle(propagation_factor_array(wg, fs, pool=pool, chunksize=chunksize))
+    return np.angle(propagation_factor_array(wg, fs))
 
 
 def impedance_array(wg: WG, fs) -> np.ndarray:
