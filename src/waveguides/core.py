@@ -85,6 +85,8 @@ def norm_mn(m, n, a, b, kc):
     return norm
 
 
+# NOTE: these scalar alpha_* are the independent test oracle for the vectorized
+# propagation_factor_matrix (which inlines the same formulas). Keep them in sync.
 def alpha_rec_te(a, b, r_s, m, n, k, kc):
     """Attenuation constant for TE_{mn} mode in a rectangular waveguide."""
     eps_m = 2 if m == 0 else 1
@@ -239,6 +241,8 @@ def propagation_factor_matrix(wg, fs, lossless=False):
     ratio2 = (kc / k) ** 2
     with np.errstate(divide="ignore", invalid="ignore"):
         root = np.sqrt((1 - ratio2).astype(np.complex128))
+        # Vectorized twins of core.alpha_rec_te/tm and alpha_cir_te/tm; keep both in
+        # sync — the scalar forms are retained as the independent test oracle.
         if wg.cross_tag == "rec":
             a, b = wg.a, wg.b
             eps_m = np.where(m1 == 0, 2.0, 1.0)
@@ -429,6 +433,8 @@ class WG(ABC):
         Defined as the argument of the propagation factor:
         angle(exp(-(alpha + j*beta) * l)) = -beta * l (rad).
         """
+        # angle is loss-independent, so the lossy factor is used; at exact cutoff the
+        # guarded pf=0 gives phaseshift 0.
         return np.angle(propagation_factor_matrix(self, f))[0]
 
     def phaseshift_at_list(self, f_list):

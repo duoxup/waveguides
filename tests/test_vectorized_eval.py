@@ -198,6 +198,8 @@ def test_kernel_scalar_and_empty_shapes():
     assert impedance_matrix(wg, 10e9).shape == (1, 10)
     assert wavelength_matrix(wg, 10e9).shape == (1, 10)
     assert propagation_factor_matrix(wg, []).shape == (0, 10)
+    assert impedance_matrix(wg, []).shape == (0, 10)
+    assert wavelength_matrix(wg, []).shape == (0, 10)
 
 
 def test_kernel_pf_exact_cutoff():
@@ -241,18 +243,29 @@ def test_wg_methods_match_scalar(make_wg, fs, N):
 
 
 @pytest.mark.parametrize("make_wg, fs", [(_rec, REC_FS), (_cir, CIR_FS)])
-def test_wg_propagation_factor_lossless(make_wg, fs):
-    wg = make_wg(40)
+@pytest.mark.parametrize("N", [1, 40, 800])
+def test_wg_propagation_factor_lossless(make_wg, fs, N):
+    wg = make_wg(N)
     got = wg.propagation_factor_at_list(fs, lossless=True)
     ref = np.array([scalar_pf(wg, f, lossless=True) for f in fs])
     np.testing.assert_allclose(got, ref, rtol=1e-9, atol=1e-12)
-    assert wg.propagation_factor_at(fs[0], lossless=True).shape == (40,)
+    assert wg.propagation_factor_at(fs[0], lossless=True).shape == (N,)
 
 
 @pytest.mark.parametrize("make_wg, fs", [(_rec, REC_FS), (_cir, CIR_FS)])
-def test_hc_propagation_factor_lossless(make_wg, fs):
+@pytest.mark.parametrize("N", [1, 40, 800])
+def test_hc_propagation_factor_lossless(make_wg, fs, N):
     # propagation_factor_array is already imported at the top of the file
-    wg = make_wg(40)
+    wg = make_wg(N)
     got = propagation_factor_array(wg, fs, lossless=True)
     ref = np.array([scalar_pf(wg, f, lossless=True) for f in fs])
     np.testing.assert_allclose(got, ref, rtol=1e-9, atol=1e-12)
+
+
+@pytest.mark.parametrize("make_wg, fs", [(_rec, REC_FS), (_cir, CIR_FS)])
+def test_wg_phaseshift_at_scalar(make_wg, fs):
+    wg = make_wg(40)
+    f0 = fs[0]
+    got = wg.phaseshift_at(f0)
+    assert got.shape == (40,)
+    np.testing.assert_allclose(got, np.angle(scalar_pf(wg, f0)), rtol=1e-9, atol=1e-9)
