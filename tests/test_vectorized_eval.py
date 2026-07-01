@@ -62,3 +62,20 @@ def test_propagation_factor_no_pool_kwarg():
     wg = _rec(4)
     with pytest.raises(TypeError):
         propagation_factor_array(wg, [10e9], pool=None)
+
+
+@pytest.mark.parametrize("make_wg, fs", [(_rec, REC_FS), (_cir, CIR_FS)])
+@pytest.mark.parametrize("N", [1, 40, 800])
+def test_impedance_matches_oracle(make_wg, fs, N):
+    wg = make_wg(N)
+    got = impedance_array(wg, fs)
+    ref = np.array([wg.impedance_at(f) for f in fs])
+    assert got.shape == (len(fs), N)
+    assert np.iscomplexobj(got)
+    np.testing.assert_allclose(got, ref, rtol=1e-9, atol=1e-6)
+
+
+def test_impedance_no_pool_kwarg():
+    wg = _rec(4)
+    with pytest.raises(TypeError):
+        impedance_array(wg, [10e9], pool=None)

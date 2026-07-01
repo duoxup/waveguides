@@ -261,17 +261,18 @@ def phaseshift_array(wg: WG, fs: Sequence[float], *,
     return np.angle(propagation_factor_array(wg, fs, pool=pool, chunksize=chunksize))
 
 
-def impedance_array(wg: WG, fs: Sequence[float], *,
-                    pool=None,
-                    chunksize: int = 64) -> np.ndarray:
-    """
-    Compute the wave-impedance matrix for *wg* over a list of frequencies *fs*.
+def impedance_array(wg: WG, fs) -> np.ndarray:
+    """Wave-impedance matrix for *wg* over frequencies *fs*.
 
-    Returns a 2D array of shape (len(fs), N) where N is the number of modes.
+    *fs* may be a scalar or 1-D array-like. Returns a complex array of
+    shape (len(fs), N). Fully vectorized (no pool).
     """
-    iterable_args = _build_imp_args(wg, fs).flatten()
-    pool_res = _dispatch(_imp_worker, iterable_args, pool=pool, chunksize=chunksize)
-    return _results_to_matrix_auto_shape(pool_res, dtype=complex)
+    ma, fs, k, kc, beta = _grid(wg, fs)
+    mode_type = ma["mode_type"][None, :]
+    eta = 120 * np.pi / np.sqrt(wg.er)
+    with np.errstate(divide="ignore", invalid="ignore"):
+        Z = np.where(mode_type > 0, k / beta * eta, beta / k * eta)
+    return Z
 
 
 # *********************************************************
