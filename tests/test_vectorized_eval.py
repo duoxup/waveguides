@@ -31,3 +31,34 @@ def test_mode_arrays_values_and_cache():
     assert list(ma["mode_num2"]) == [m.mode_num2 for m in wg.mode_info_list]
     np.testing.assert_allclose(ma["kc"], [m.kc for m in wg.mode_info_list])
     assert wg._mode_arrays() is ma  # memoized: same object on second call
+
+
+@pytest.mark.parametrize("make_wg, fs", [(_rec, REC_FS), (_cir, CIR_FS)])
+@pytest.mark.parametrize("N", [1, 40, 800])
+def test_propagation_factor_matches_oracle(make_wg, fs, N):
+    wg = make_wg(N)
+    got = propagation_factor_array(wg, fs)
+    ref = np.array([wg.propagation_factor_at(f) for f in fs])
+    assert got.shape == (len(fs), N)
+    assert np.iscomplexobj(got)
+    np.testing.assert_allclose(got, ref, rtol=1e-9, atol=1e-12)
+
+
+def test_propagation_factor_scalar_returns_2d():
+    wg = _rec(10)
+    out = propagation_factor_array(wg, 10e9)
+    assert out.shape == (1, 10)
+    ref = wg.propagation_factor_at(10e9)
+    np.testing.assert_allclose(out[0], ref, rtol=1e-9, atol=1e-12)
+
+
+def test_propagation_factor_empty_returns_0xN():
+    wg = _rec(10)
+    out = propagation_factor_array(wg, [])
+    assert out.shape == (0, 10)
+
+
+def test_propagation_factor_no_pool_kwarg():
+    wg = _rec(4)
+    with pytest.raises(TypeError):
+        propagation_factor_array(wg, [10e9], pool=None)

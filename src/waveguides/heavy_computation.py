@@ -188,23 +188,64 @@ def _select_pf_worker(wg: WG):
             raise ValueError(f'Unknown waveguide cross_tag: {wg.cross_tag!r}')
 
 
+def _grid(wg, fs):
+    """Shared frequency/mode grid for vectorized evaluation.
+
+    Returns (mode_arrays, fs_1d, k, kc, beta) with k shaped (M,1),
+    kc shaped (1,N), beta shaped (M,N) complex128.
+    """
+    ma = wg._mode_arrays()
+    fs = np.atleast_1d(np.asarray(fs, dtype=float))
+    k = (2 * np.pi * fs / C_LIGHT * np.sqrt(wg.er))[:, None]
+    kc = ma["kc"][None, :]
+    beta = np.sqrt((k**2 - kc**2).astype(np.complex128))
+    return ma, fs, k, kc, beta
+
+
 # *********************************************************
 # %% Public APIs
 # *********************************************************
 
-def propagation_factor_array(wg: WG, fs: Sequence[float], *,
-                             pool=None,
-                             chunksize: int = 64) -> np.ndarray:
-    """
-    Compute the complex propagation factor exp(-(alpha + j*beta)*l) for each
-    mode in *wg* over a list of frequencies *fs*.
+def propagation_factor_array(wg: WG, fs) -> np.ndarray:
+    """Complex propagation factor exp(-(alpha + j*beta)*l) for each mode of
+    *wg* over frequencies *fs*.
 
-    Returns a 2D complex array of shape (len(fs), N) where N is the number of modes.
+    *fs* may be a scalar or a 1-D array-like. Returns a complex array of
+    shape (len(fs), N), N = number of modes. Fully vectorized (no pool).
     """
-    func_worker = _select_pf_worker(wg)
-    iterable_args = _build_pf_args(wg, fs).flatten()
-    pool_res = _dispatch(func_worker, iterable_args, pool=pool, chunksize=chunksize)
-    return _results_to_matrix_auto_shape(pool_res, dtype=complex)
+    ma, fs, k, kc, beta = _grid(wg, fs)
+    mode_type = ma["mode_type"][None, :]
+    m1 = ma["mode_num1"][None, :].astype(float)
+    m2 = ma["mode_num2"][None, :].astype(float)
+    r_s = np.sqrt(np.pi * fs * 4 * np.pi * 1e-7 / wg.sigma)[:, None]
+    ratio2 = (kc / k) ** 2
+    with np.errstate(divide="ignore", invalid="ignore"):
+        root = np.sqrt((1 - ratio2).astype(np.complex128))
+        if wg.cross_tag == "rec":
+            a, b = wg.a, wg.b
+            eps_m = np.where(m1 == 0, 2.0, 1.0)
+            eps_n = np.where(m2 == 0, 2.0, 1.0)
+            denom = m1**2 * b**2 + m2**2 * a**2
+            alpha_te = (
+                1.0 / (60 * np.pi) * r_s / (eps_m * eps_n * root)
+                * (ratio2 * (eps_m / b + eps_n / a)
+                   + (1 - ratio2) * (m1**2 * b + m2**2 * a) / denom)
+            )
+            alpha_tm = (
+                r_s / root * (m1**2 * b**3 + m2**2 * a**3) / denom
+                / (60 * np.pi * a * b)
+            )
+        elif wg.cross_tag == "cir":
+            rc = wg.r
+            alpha_te = (
+                r_s / root * (m1**2 / (kc**2 * rc**2 - m1**2) + ratio2)
+                / (120 * np.pi * rc)
+            )
+            alpha_tm = r_s / root / (120 * np.pi * rc)
+        else:
+            raise ValueError(f"Unknown waveguide cross_tag: {wg.cross_tag!r}")
+        alpha = np.where(mode_type > 0, alpha_te, alpha_tm)
+    return np.exp(-(np.imag(beta) + np.abs(alpha) + 1j * np.real(beta)) * wg.l)
 
 
 def phaseshift_array(wg: WG, fs: Sequence[float], *,
