@@ -108,22 +108,6 @@ def alpha_rec_tm(a, b, r_s, m, n, k, kc):
     return alpha
 
 
-def calc_propagation_factor_rec(a, b, er, maxmodeN, sigma, f, l, mode_mat, lossless=False):
-    k = 2 * np.pi * f / C_LIGHT * np.sqrt(er)
-    ps = np.zeros(maxmodeN, dtype=complex)
-    r_s = np.sqrt(np.pi * f * 4 * np.pi * 1e-7 / sigma)
-    if lossless:
-        r_s = 0
-    for i in range(maxmodeN):
-        beta = sqrt(k**2 - mode_mat[i, 0]**2)
-        if mode_mat[i, 1] > 0:  # TE mode
-            alpha = alpha_rec_te(a, b, r_s, int(mode_mat[i, 2]), int(mode_mat[i, 3]), k, mode_mat[i, 0])
-        else:  # TM mode
-            alpha = alpha_rec_tm(a, b, r_s, int(mode_mat[i, 2]), int(mode_mat[i, 3]), k, mode_mat[i, 0])
-        ps[i] = np.exp(-(np.imag(beta) + np.abs(alpha) + 1j * np.real(beta)) * l)
-    return ps
-
-
 # *********************************************************
 # %% Circular waveguide helpers
 # *********************************************************
@@ -223,22 +207,6 @@ def alpha_cir_tm(rc, r_s, k, kc):
     """Attenuation constant for TM_{qr} mode in a circular waveguide."""
     alpha = r_s / sqrt(1 - (kc / k)**2) / (120 * np.pi * rc)
     return alpha
-
-
-def calc_propagation_factor_cir(rc, er, maxmodeN, sigma, f, l, mode_mat, lossless=False):
-    k = 2 * np.pi * f / C_LIGHT * np.sqrt(er)
-    ps = np.zeros(maxmodeN, dtype=complex)
-    r_s = np.sqrt(np.pi * f * 4 * np.pi * 1e-7 / sigma)
-    if lossless:
-        r_s = 0
-    for i in range(maxmodeN):
-        beta = sqrt(k**2 - mode_mat[i, 0]**2)
-        if mode_mat[i, 1] > 0:  # TE mode
-            alpha = alpha_cir_te(rc, r_s, int(mode_mat[i, 2]), k, mode_mat[i, 0])
-        else:  # TM mode
-            alpha = alpha_cir_tm(rc, r_s, k, mode_mat[i, 0])
-        ps[i] = np.exp(-(np.imag(beta) + np.abs(alpha) + 1j * np.real(beta)) * l)
-    return ps
 
 
 # *********************************************************
@@ -432,35 +400,16 @@ class WG(ABC):
     # -------------------------
 
     def wavelength_at(self, f):
-        k0 = f / C_LIGHT * 2 * np.pi * np.sqrt(self.er)
-        kz_list = []
-        for mode_info in self.mode_info_list:
-            kc = mode_info.kc
-            kz = np.sqrt(complex(k0**2 - kc**2))
-            kz_list.append(kz)
-        wavelengths = 2 * np.pi / np.array(kz_list)
-        return wavelengths
+        return wavelength_matrix(self, f)[0]
 
     def wavelength_at_list(self, f_list):
-        wavelength_list = []
-        for f in f_list:
-            wavelength_list.append(self.wavelength_at(f))
-        return np.array(wavelength_list)
+        return wavelength_matrix(self, f_list)
 
     def impedance_at(self, f):
-        info_mat = self.mode_info_array()
-        k = 2 * np.pi * f / C_LIGHT * np.sqrt(self.er)
-        Z = np.zeros(self.N, dtype=complex)
-        for i in range(self.N):
-            beta = np.sqrt((k**2 - info_mat[i, 0]**2).astype(np.complex128))
-            if info_mat[i, 1] > 0:  # TE mode
-                Z[i] = k / beta * 120 * np.pi / np.sqrt(self.er)
-            else:  # TM mode
-                Z[i] = beta / k * 120 * np.pi / np.sqrt(self.er)
-        return Z
+        return impedance_matrix(self, f)[0]
 
     def impedance_at_list(self, f_list):
-        return np.array([self.impedance_at(f) for f in f_list])
+        return impedance_matrix(self, f_list)
 
     def gamma_at(self, f):
         raise NotImplementedError()
@@ -469,23 +418,10 @@ class WG(ABC):
         raise NotImplementedError()
 
     def propagation_factor_at(self, f, lossless=False):
-        match self.cross_tag:
-            case 'cir':
-                ps = calc_propagation_factor_cir(
-                    self.r, self.er, self.N, self.sigma, f, self.l,
-                    self.mode_info_array(), lossless=lossless,
-                )
-            case 'rec':
-                ps = calc_propagation_factor_rec(
-                    self.a, self.b, self.er, self.N, self.sigma, f, self.l,
-                    self.mode_info_array(), lossless=lossless,
-                )
-            case _:
-                raise TypeError('Unknown waveguide type.')
-        return ps
+        return propagation_factor_matrix(self, f, lossless)[0]
 
     def propagation_factor_at_list(self, f_list, lossless=False):
-        return np.array([self.propagation_factor_at(f, lossless=lossless) for f in f_list])
+        return propagation_factor_matrix(self, f_list, lossless)
 
     def phaseshift_at(self, f):
         """Return the phase shift (rad) for each mode at frequency f.
@@ -493,14 +429,14 @@ class WG(ABC):
         Defined as the argument of the propagation factor:
         angle(exp(-(alpha + j*beta) * l)) = -beta * l (rad).
         """
-        return np.angle(self.propagation_factor_at(f, lossless=True))
+        return np.angle(propagation_factor_matrix(self, f))[0]
 
     def phaseshift_at_list(self, f_list):
         """Return the phase shift (rad) for each mode over a list of frequencies.
 
         Shape: (len(f_list), N).
         """
-        return np.array([self.phaseshift_at(f) for f in f_list])
+        return np.angle(propagation_factor_matrix(self, f_list))
 
     def mode_info_array(self):
         """Return mode info as a 2D numpy array with shape (N, 8)."""

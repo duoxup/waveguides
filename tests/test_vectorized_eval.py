@@ -209,3 +209,41 @@ def test_kernel_pf_exact_cutoff():
     assert lossy[i] == 0                     # lossy exact cutoff -> 0 (guarded)
     lossless = propagation_factor_matrix(wg, fc, lossless=True)[0]
     assert np.isnan(lossless[i])             # lossless exact cutoff -> nan (matches scalar)
+
+
+@pytest.mark.parametrize("make_wg, fs", [(_rec, REC_FS), (_cir, CIR_FS)])
+@pytest.mark.parametrize("N", [1, 40, 800])
+def test_wg_methods_match_scalar(make_wg, fs, N):
+    wg = make_wg(N)
+    f0 = fs[0]
+    # scalar *_at -> (N,)
+    np.testing.assert_allclose(wg.impedance_at(f0), scalar_impedance(wg, f0),
+                               rtol=1e-9, atol=1e-6)
+    np.testing.assert_allclose(wg.wavelength_at(f0), scalar_wavelength(wg, f0),
+                               rtol=1e-9, atol=1e-9)
+    np.testing.assert_allclose(wg.propagation_factor_at(f0), scalar_pf(wg, f0),
+                               rtol=1e-9, atol=1e-12)
+    assert wg.impedance_at(f0).shape == (N,)
+    # list *_at_list -> (M,N)
+    imp = wg.impedance_at_list(fs)
+    assert imp.shape == (len(fs), N)
+    np.testing.assert_allclose(imp, np.array([scalar_impedance(wg, f) for f in fs]),
+                               rtol=1e-9, atol=1e-6)
+    wl = wg.wavelength_at_list(fs)
+    np.testing.assert_allclose(wl, np.array([scalar_wavelength(wg, f) for f in fs]),
+                               rtol=1e-9, atol=1e-9)
+    pf = wg.propagation_factor_at_list(fs)
+    np.testing.assert_allclose(pf, np.array([scalar_pf(wg, f) for f in fs]),
+                               rtol=1e-9, atol=1e-12)
+    ps = wg.phaseshift_at_list(fs)
+    np.testing.assert_allclose(ps, np.angle(np.array([scalar_pf(wg, f) for f in fs])),
+                               rtol=1e-9, atol=1e-9)
+
+
+@pytest.mark.parametrize("make_wg, fs", [(_rec, REC_FS), (_cir, CIR_FS)])
+def test_wg_propagation_factor_lossless(make_wg, fs):
+    wg = make_wg(40)
+    got = wg.propagation_factor_at_list(fs, lossless=True)
+    ref = np.array([scalar_pf(wg, f, lossless=True) for f in fs])
+    np.testing.assert_allclose(got, ref, rtol=1e-9, atol=1e-12)
+    assert wg.propagation_factor_at(fs[0], lossless=True).shape == (40,)
