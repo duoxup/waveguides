@@ -247,3 +247,12 @@ def test_wg_propagation_factor_lossless(make_wg, fs):
     ref = np.array([scalar_pf(wg, f, lossless=True) for f in fs])
     np.testing.assert_allclose(got, ref, rtol=1e-9, atol=1e-12)
     assert wg.propagation_factor_at(fs[0], lossless=True).shape == (40,)
+
+
+@pytest.mark.parametrize("make_wg, fs", [(_rec, REC_FS), (_cir, CIR_FS)])
+def test_hc_propagation_factor_lossless(make_wg, fs):
+    # propagation_factor_array is already imported at the top of the file
+    wg = make_wg(40)
+    got = propagation_factor_array(wg, fs, lossless=True)
+    ref = np.array([scalar_pf(wg, f, lossless=True) for f in fs])
+    np.testing.assert_allclose(got, ref, rtol=1e-9, atol=1e-12)
