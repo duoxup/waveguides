@@ -88,8 +88,10 @@ Provide a single evaluation path that:
 - serves batched and incremental (adaptive, one-point-per-iteration) use equally well;
 - is dramatically faster in both (≈40–200× on the typical case);
 - removes the `multiprocessing` machinery (pool, `chunksize`, picklability constraints);
-- preserves the existing public names, return shapes, and numerics (downstream package
-  needs **zero changes** to keep working).
+- keeps the existing public function names, return shapes, and numerics, but **drops the
+  now-obsolete `pool` / `chunksize` keyword arguments**. The package has a single user, so
+  a trivial downstream edit (removing those kwargs at call sites) is acceptable; no
+  deprecation shims are carried.
 
 ## 4. Approaches considered
 
@@ -98,7 +100,8 @@ Reimplement the three quantities as NumPy operations broadcast over the frequenc
 `k, r_s` as `(M, 1)`, mode parameters (`kc, mode_type, m/n`) as `(1, N)`; compute
 `beta / alpha / Z` on the full `(M, N)` grid, selecting TE/TM branches with masks.
 - *Pros:* one implementation optimal for both batch and single-point; deletes IPC
-  complexity; ~40–200× faster; verified numerically identical; backward compatible.
+  complexity; ~40–200× faster; verified numerically identical; names/shapes/numerics
+  preserved (only the `pool`/`chunksize` kwargs are dropped).
 - *Cons:* the four `alpha` formulas + impedance + cutoff handling must be vectorized
   carefully and pinned by regression tests.
 
@@ -155,22 +158,22 @@ columns — exactly 1× work, no waste. Deferred: the `(M, N)` grid is already s
 
 ## 6. Interface
 
-Public names and return shapes are **unchanged** so the downstream package needs no edits.
+Function names and return shapes are kept; the `pool` / `chunksize` keyword arguments are
+**removed** (see §3 — single-user package, no deprecation shims).
 
 ```python
-propagation_factor_array(wg, fs, *, pool=None, chunksize=64) -> np.ndarray  # (M, N)
-phaseshift_array(wg, fs, *, pool=None, chunksize=64)        -> np.ndarray  # (M, N)
-impedance_array(wg, fs, *, pool=None, chunksize=64)         -> np.ndarray  # (M, N)
+propagation_factor_array(wg, fs) -> np.ndarray  # (M, N)
+phaseshift_array(wg, fs)         -> np.ndarray  # (M, N)
+impedance_array(wg, fs)          -> np.ndarray  # (M, N)
 ```
 
 - `fs` accepts a scalar or any 1-D array-like; internally coerced with `np.atleast_1d`.
   A scalar or length-1 input returns shape `(1, N)`.
-- `pool` and `chunksize` are **retained but ignored**. If `pool is not None`, emit a
-  `DeprecationWarning` ("pool is ignored; evaluation is now vectorized") once. They are
-  kept only so existing call sites do not break; they may be removed in a future major.
+- No `pool` / `chunksize` parameters. Call sites that passed them must drop those kwargs
+  (the author maintains the only downstream caller and will update it).
 - Empty `fs` returns an empty `(0, N)` array (the current pool path raises on empty; the
-  vectorized path can return the natural empty result — this is a deliberate, documented
-  behavior change).
+  vectorized path returns the natural empty result — a deliberate, documented behavior
+  change).
 
 ### 6.1 Internal structure
 
@@ -187,6 +190,25 @@ impedance_array(wg, fs, *, pool=None, chunksize=64)         -> np.ndarray  # (M,
   and cached on the `WG` instance (mode list is fixed after construction). This cache is
   what makes single-point calls cheap (~99 µs at `N = 800`).
 
+### 6.2 Legacy pool code removal (staged)
+
+The existing pool implementation is correct and is kept **only during development** as a
+convenience reference/oracle for the new kernel. Once the vectorized path passes the tests
+in §8 and is confirmed stable, the entire legacy path is deleted **before the next push** —
+it is not carried forward. Concretely, the following are removed in full (no deprecation
+period):
+
+- workers `_pf_worker_cir`, `_pf_worker_rec`, `_imp_worker`;
+- dispatch/marshalling helpers `_dispatch`, `_build_pf_args`, `_build_imp_args`,
+  `_results_to_matrix_auto_shape`, `_select_pf_worker`;
+- the deprecated `impedance_array_multifreq` alias;
+- the `pool` / `chunksize` parameters on the public functions.
+
+Sequencing: (1) add vectorized kernels + tests while legacy stays; (2) flip the public
+`*_array` functions to the kernels; (3) delete the legacy block. The permanent test oracle
+is the scalar `WG.*_at(f)` methods (which never used the pool), so tests remain valid after
+the legacy code is gone.
+
 ## 7. Correctness and edge cases
 
 - **Below cutoff (evanescent):** `numpy.lib.scimath.sqrt(k**2 - kc**2)` yields complex
@@ -201,22 +223,25 @@ impedance_array(wg, fs, *, pool=None, chunksize=64)         -> np.ndarray  # (M,
 
 ## 8. Testing
 
-- **Oracle:** the existing scalar methods `wg.propagation_factor_at(f)` / `impedance_at(f)`
-  and the current pool-based `*_array`, treated as ground truth.
+- **Oracle:** the scalar methods `wg.propagation_factor_at(f)` / `impedance_at(f)` (never
+  used the pool → valid after legacy removal). During development the legacy pool `*_array`
+  may serve as an extra cross-check while it still exists.
 - **Parametrization:** `RecWG` and `CirWG`; `N ∈ {1, 40, 800}`; `fs` spanning below-cutoff,
   near-cutoff, and above-cutoff points; scalar, length-1, and multi-point inputs.
 - **Assertions:** `max |Δ| < 1e-12` vs oracle (observed 3.6e-15); shape and dtype contract;
   `phaseshift` matches `np.angle(propagation_factor)` (wrapped `-Re(beta) * l`);
-  empty-input returns `(0, N)`; `DeprecationWarning` emitted when `pool` is passed.
+  empty-input returns `(0, N)`.
 
 ## 9. Out of scope (YAGNI)
 
 - No frequency memoization/caching (sampler uses one new point per iteration, no repeats).
-- No immediate deletion of the pool code beyond turning it into an ignored no-op.
 - No changes to field-distribution (`get_mode_efield_distribution_at_gridpoints`) code.
+
+(Legacy pool removal is **in scope**, staged per §6.2.)
 
 ## 10. Expected outcome
 
 For the typical 800-mode × 100-point sweep, the full adaptive scan drops from ~0.42 s
-(current best, per-freq + pool) to ~0.01 s, with the pool and its picklability
-constraints removed and the downstream package requiring no changes.
+(current best, per-freq + pool) to ~0.01 s, with the pool and its picklability constraints
+removed entirely. The only downstream impact is dropping the now-removed `pool` /
+`chunksize` kwargs at call sites, which the author will update by hand.
